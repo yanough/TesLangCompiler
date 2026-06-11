@@ -1,7 +1,6 @@
 import re
 
-# تعریف توکن‌ها و الگوهای Regex
-# ترتیب قرارگیری مهم است (مثلاً کلمات کلیدی قبل از ID باشند)
+# لیست توکن‌ها (همان قبلی)
 TOKEN_SPECIFICATION = [
     ('FUNK',       r'\bfunk\b'),
     ('INT',        r'\bint\b'),
@@ -27,21 +26,61 @@ TOKEN_SPECIFICATION = [
     ('LSQUAREBR',  r'\['),
     ('RSQUAREBR',  r'\]'),
     ('SEMI_COLON', r';'),
-    ('NEWLINE',    r'\n'),           # برای مدیریت شماره سطر
-    ('SKIP',       r'[ \t]+'),       # نادیده گرفتن فضاهای خالی
-    ('MISMATCH',   r'.'),            # کاراکترهای غیرمجاز
+    ('NEWLINE',    r'\n'),
+    ('SKIP',       r'[ \t]+'),
+    ('MISMATCH',   r'.'),
 ]
 
+def remove_comments(code):
+    """
+    این تابع کامنت‌های تودرتو را با فضای خالی جایگزین می‌کند 
+    تا سطر و ستون توکن‌های واقعی تغییر نکند.
+    """
+    output = []
+    i = 0
+    depth = 0  # شمارنده برای مدیریت تودرتویی
+    
+    while i < len(code):
+        # چک کردن شروع کامنت /*
+        if i + 1 < len(code) and code[i:i+2] == '/*':
+            depth += 1
+            output.append('  ') # جایگزین کردن /* با دو فضا
+            i += 2
+        # چک کردن پایان کامنت */
+        elif i + 1 < len(code) and code[i:i+2] == '*/':
+            if depth > 0:
+                depth -= 1
+                output.append('  ') # جایگزین کردن */ با دو فضا
+                i += 2
+            else:
+                # اگر */ بدون شروع بیاید، آن را کاراکتر عادی فرض می‌کنیم یا خطا می‌دهیم
+                output.append(code[i])
+                i += 1
+        else:
+            # اگر داخل کامنت هستیم، کاراکتر را با فضای خالی (یا اینتر) جایگزین می‌کنیم
+            if depth > 0:
+                if code[i] == '\n':
+                    output.append('\n') # اینتر را نگه می‌داریم تا شماره سطر خراب نشود
+                else:
+                    output.append(' ')
+            else:
+                output.append(code[i])
+            i += 1
+            
+    if depth > 0:
+        print("هشدار: کامنت بسته نشده است!")
+        
+    return "".join(output)
+
 def tokenize(code):
-    # ترکیب تمام Regexها در یک عبارت واحد
+    # ابتدا کامنت‌ها را پاک می‌کنیم
+    clean_code = remove_comments(code)
+    
     tok_regex = '|'.join('(?P<%s>%s)' % pair for pair in TOKEN_SPECIFICATION)
     line_num = 1
     line_start = 0
     
-    # برای مدیریت کامنت‌های تودرتو، بهتر است قبل از توکنایز کردن، 
-    # یک پیش‌پردازش برای حذف کامنت‌ها انجام دهیم (در ادامه توضیح می‌دهم)
-    
-    for mo in re.finditer(tok_regex, code):
+    for mo in re.finditer(tok_regex, clean_code):
         kind = mo.lastgroup
         value = mo.group()
         column = mo.start() - line_start + 1
@@ -53,7 +92,9 @@ def tokenize(code):
         elif kind == 'SKIP':
             continue
         elif kind == 'MISMATCH':
-            print(f'خطا: کاراکتر غیرمجاز {value} در سطر {line_num}')
+            # نادیده گرفتن کاراکترهای خالی که جایگزین کامنت شده‌اند
+            if value.strip() == '': continue 
+            print(f'خطا: کاراکتر غیرمجاز {value} در سطر {line_num} ستون {column}')
             continue
             
         yield {
@@ -63,12 +104,12 @@ def tokenize(code):
             'value': value
         }
 
-# تست برنامه با ورودی نمونه
-sample_code = """funk <int> sum(numlist as vector) {
-    result :: int = 0;
+# --- تست با کامنت تودرتو ---
+sample_code = """funk <int> sum /* این یک کامنت /* تودرتو */ است */ (numlist as vector) {
+    result :: int = 0; /* کامنت معمولی */
 }"""
 
 print(f"{'Line':<8} | {'Column':<8} | {'Token':<15} | {'Value'}")
-print("-" * 50)
+print("-" * 55)
 for token in tokenize(sample_code):
     print(f"{token['line']:<8} | {token['column']:<8} | {token['token']:<15} | {token['value']}")
